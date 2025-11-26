@@ -1,0 +1,31 @@
+\documentclass[a4paper,10pt]{ctexart} 
+\usepackage{geometry}
+\geometry{left=2.5cm, right=2cm, top=2.5cm, bottom=2cm}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{} 
+% 【核心】页眉必须与申请表完全一致
+\fancyhead[C]{未来翼DroneControlCore无人机飞行控制系统V1.0} 
+\fancyhead[R]{\thepage} 
+\renewcommand{\headrulewidth}{0.5pt} 
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+    basicstyle=\footnotesize\ttfamily, % 小字号是放下50行的关键
+    breaklines=true,               
+    numbers=left,                  
+    numberstyle=\tiny\color{gray}, 
+    frame=none,                    
+    tabsize=4,                     
+    extendedchars=true,            
+    breakatwhitespace=false,       
+    showstringspaces=false,        
+    keywordstyle=\bfseries\color{blue}, 
+    commentstyle=\color{green!40!black}, 
+    stringstyle=\color{red},
+    keepspaces=true
+}
+\begin{document}
+% 导入清洗后的代码
+\lstinputlisting{all_code.txt}
+\end{document}

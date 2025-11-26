@@ -1,0 +1,805 @@
+\documentclass[a4paper,12pt]{ctexart}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{enumitem}
+
+% 页面设置
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+
+% 代码块设置
+\lstset{
+    basicstyle=\small\ttfamily,
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    frame=single,
+    tabsize=4,
+    extendedchars=true,
+    keywordstyle=\bfseries\color{blue},
+    commentstyle=\color{green!40!black},
+    stringstyle=\color{red},
+    keepspaces=true,
+    showstringspaces=false
+}
+
+% 页眉设置
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{集置核心 GESTELL Core 无人机飞行控制系统 V1.0}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+
+% 标题格式
+\title{\textbf{软件设计说明书}}
+\author{嘉佳科技有限公司}
+\date{\today}
+
+\begin{document}
+
+% 封面
+\begin{titlepage}
+    \centering
+    \vspace*{3cm}
+    {\Huge \textbf{集置核心 GESTELL Core\\无人机飞行控制系统 V1.0}}\\[1cm]
+    {\Huge \textbf{软件设计说明书}}\\[4cm]
+    {\Large 申请单位：嘉佳科技有限公司}\\[0.5cm]
+    {\Large 日期：2025年11月26日}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+当前市场上的飞控系统普遍存在以下痛点：首先，\textbf{通信延迟高}，在4G/5G网络环境下，传统的轮询式架构难以保证毫秒级的实时控制。其次，\textbf{算力瓶颈}，机载端缺乏高效的边缘计算能力，难以处理高清视频流的实时AI推理。最后，\textbf{扩展性差}，紧耦合的单体架构导致新功能（如异构无人机接入）开发周期长、风险高。
+基于此，嘉佳科技有限公司研发了 GESTELL Core 系统，采用云边端协同架构，实现了毫秒级低时延控制与高精度视觉感知。
+
+\subsection{适用范围}
+本系统适用于以下场景：
+本系统适用于以下场景：\textbf{多机集群调度}，支持同时管理超过100架异构无人机的飞行任务；\textbf{超视距自主飞行}，基于高精度地图的航点规划与自动避障；\textbf{实时安防监控}，基于YOLOv8的人员、车辆实时检测与追踪；以及\textbf{全生命周期管理}，涵盖无人机健康状态监测、固件升级与维护记录。
+
+\subsection{术语定义}
+\begin{longtable}{|p{3cm}|p{11cm}|}
+\hline
+\textbf{术语} & \textbf{定义} \\
+\hline
+\endhead
+MAVLink & Micro Air Vehicle Link，一种轻量级的无人机通信协议，用于传输遥测数据与控制指令。 \\ \hline
+BVLOS & Beyond Visual Line of Sight，超视距飞行，指无人机在操作员视距范围之外的自主飞行。 \\ \hline
+RTSP & Real Time Streaming Protocol，实时流传输协议，用于视频流的推拉流控制。 \\ \hline
+QGC & QGroundControl，一种开源的地面站软件，本系统兼容其标准协议。 \\ \hline
+Edge Computing & 边缘计算，指在无人机机载计算机（如Jetson系列）上进行的本地数据处理。 \\ \hline
+Failsafe & 失效保护机制，当系统检测到异常（如链路中断、电量过低）时自动触发的安全策略。 \\ \hline
+\end{longtable}
+
+\section{总体设计}
+
+\subsection{设计原则}
+本系统遵循以下核心设计原则：
+本系统遵循以下核心设计原则：一是\textbf{高内聚低耦合}，采用微服务架构，各功能模块独立部署，通过标准API交互；二是\textbf{实时优先}，在遥测与控制链路中，优先保证数据的实时性，采用UDP与WebSocket协议；三是\textbf{安全可靠}，全链路加密传输，具备完善的权限控制与异常熔断机制；四是\textbf{可扩展性}，支持通过插件机制接入新型号的传感器与载荷。
+
+\subsection{系统逻辑架构}
+系统自下而上分为四层：设备层、边缘层、服务层与应用层。
+
+\subsubsection{设备层 (Device Layer)}
+包含无人机飞行平台、飞控模块（PX4/ArduPilot）、各类传感器（GPS、IMU、激光雷达）及挂载载荷（云台相机、投放器）。
+
+\subsubsection{边缘层 (Edge Layer)}
+运行在机载伴侣计算机（Companion Computer）上。
+运行在机载伴侣计算机（Companion Computer）上，主要包含以下组件：\textbf{MAVSDK Proxy}，负责与飞控进行串口通信，将MAVLink消息转换为gRPC/HTTP请求；\textbf{Video Streamer}，采集相机数据，进行H.264/H.265编码并推流；以及\textbf{AI Inference Engine}，部署YOLOv8n模型，执行本地目标检测。
+
+\subsubsection{服务层 (Service Layer)}
+部署在云端服务器，基于Python FastAPI构建。
+部署在云端服务器，基于Python FastAPI构建，核心服务包括：\textbf{Mission Service}，负责航点规划、任务校验与下发；\textbf{Telemetry Service}，基于Redis Pub/Sub的高并发遥测数据分发；\textbf{Auth Service}，处理用户认证、鉴权与会话管理；以及\textbf{Media Service}，负责视频流转发与录像存储管理。
+
+\subsubsection{应用层 (Application Layer)}
+基于Vue 3 + Vite构建的Web端综合指挥平台，提供电子地图、实时视频墙、仪表盘与任务编辑器。
+
+\subsection{技术栈选型}
+\begin{longtable}{|p{3cm}|p{4cm}|p{7cm}|}
+\hline
+\textbf{类别} & \textbf{技术/工具} & \textbf{选型理由} \\
+\hline
+\endhead
+后端框架 & Python (FastAPI) & 高性能异步IO，原生支持OpenAPI文档，适合IO密集型任务。 \\ \hline
+前端框架 & Vue 3 + TypeScript & 响应式性能优异，类型安全，生态丰富。 \\ \hline
+数据库 & PostgreSQL + PostGIS & 强大的关系型数据存储，原生支持地理空间数据查询。 \\ \hline
+缓存/消息队列 & Redis & 极高的读写性能，支持Pub/Sub模式，适合实时遥测数据。 \\ \hline
+AI推理 & PyTorch + ONNX & 广泛的模型支持，ONNX Runtime提供跨平台加速。 \\ \hline
+容器化 & Docker & 保证环境一致性，简化部署流程。 \\ \hline
+\end{longtable}
+
+\section{详细模块设计 (Backend)}
+
+\subsection{核心类图设计}
+系统核心业务逻辑围绕“无人机（Drone）”与“任务（Mission）”展开。
+
+\subsubsection{DroneManager}
+负责维护所有在线无人机的状态机。
+\begin{lstlisting}
+class DroneManager:
+    - drones: Dict[str, DroneInstance]
+    - redis_client: Redis
+    
+    + register_drone(drone_id: str, connection_info: Dict) -> bool
+    + update_telemetry(drone_id: str, telemetry: TelemetryData) -> void
+    + send_command(drone_id: str, command: Command) -> CommandResult
+    + get_drone_status(drone_id: str) -> DroneStatus
+    + check_heartbeat() -> void
+\end{lstlisting}
+
+\subsubsection{MissionPlanner}
+负责任务的解析、校验与优化。
+\begin{lstlisting}
+class MissionPlanner:
+    - geo_fences: List[Polygon]
+    
+    + validate_mission(mission: Mission) -> ValidationResult
+    + optimize_path(waypoints: List[Waypoint]) -> List[Waypoint]
+    + estimate_flight_time(mission: Mission, speed: float) -> float
+    + check_terrain_collision(waypoints: List[Waypoint]) -> bool
+\end{lstlisting}
+
+\subsection{飞行任务管理模块}
+\subsubsection{功能详述}
+任务管理模块是系统的核心指挥中枢，支持航点飞行（Waypoint）、环绕飞行（Orbit）、跟随飞行（Follow Me）等多种模式。
+\subsubsection{任务上传时序}
+任务上传与执行流程如下：首先，前端提交包含航点列表的JSON数据至 \texttt{/api/missions/upload}。随后，后端 \texttt{MissionService} 接收请求，调用 \texttt{MissionPlanner.validate\_mission} 进行地理围栏与参数校验。校验通过后，将任务数据持久化至 PostgreSQL \texttt{missions} 表，状态置为 \texttt{PENDING}。当用户发送“执行”指令时，后端通过 MAVSDK 将航点上传至指定无人机。无人机确认接收（ACK）后，后端更新任务状态为 \texttt{UPLOADED}。最后，后端发送 \texttt{MISSION\_START} 指令，无人机解锁并起飞，状态更新为 \texttt{EXECUTING}。
+
+\subsection{实时遥测模块}
+\subsubsection{数据流架构}
+遥测数据（位置、姿态、电量）由无人机以 10Hz-50Hz 的频率发送。
+遥测数据流转分为三条链路：\textbf{上行链路}（Drone -> MQTT/gRPC -> Telemetry Service），负责数据的实时采集；\textbf{处理链路}，由 Telemetry Service 解析数据包，存入 Redis 缓存（设置 5秒 TTL），并异步写入 PostgreSQL（降采样存储，用于历史回放）；以及\textbf{下行链路}（Telemetry Service -> WebSocket -> Frontend Client），实现前端的实时展示。
+
+\subsubsection{坐标系转换}
+系统内部统一使用 WGS84 坐标系（经纬度），但在前端地图展示与距离计算时，需转换为 Web墨卡托投影或 ENU 局部坐标系。
+核心转换公式（Haversine）：
+\begin{equation}
+    a = \sin^2(\frac{\Delta\phi}{2}) + \cos \phi_1 \cdot \cos \phi_2 \cdot \sin^2(\frac{\Delta\lambda}{2})
+\end{equation}
+\begin{equation}
+    c = 2 \cdot \text{atan2}(\sqrt{a}, \sqrt{1-a})
+\end{equation}
+\begin{equation}
+    d = R \cdot c
+\end{equation}
+其中 $\phi$ 为纬度，$\lambda$ 为经度，$R$ 为地球半径。
+
+\subsection{视觉感知服务}
+\subsubsection{视频流处理}
+采用 `OpenCV` 读取 RTSP 流，通过 `multiprocessing` 实现帧解码与推理的并行处理，确保视频延迟低于 200ms。
+\subsubsection{目标检测算法}
+集成 YOLOv8 模型，针对俯视视角下的车辆与行人进行微调训练。
+推理流程：
+推理流程包含四个步骤：首先进行\textbf{预处理}，将图像缩放至 640x640，归一化并进行通道变换 (HWC -> CHW)；接着进行\textbf{推理}，使用 ONNX Runtime 执行前向传播；然后是\textbf{后处理}，采用 NMS（非极大值抑制）过滤冗余框，置信度阈值设为 0.5；最后进行\textbf{地理定位}，结合无人机当前的 GPS 与 姿态角（Pitch, Roll, Yaw），利用单目测距算法估算目标的地面坐标。
+
+\section{数据库设计}
+
+\subsection{数据库概览}
+采用 PostgreSQL 14 作为主数据库，启用 PostGIS 插件以支持空间数据类型。
+数据库命名规范：
+\begin{itemize}
+    \item 表名：小写下划线复数（如 `flight_logs`）。
+    \item 主键：`id` (BigSerial) 或 `uuid`。
+    \item 字段：小写下划线（如 `created_at`）。
+\end{itemize}
+
+\subsection{详细表结构设计}
+
+\subsubsection{drones (无人机设备表)}
+存储无人机的静态配置信息。
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{类型} & \textbf{约束} & \textbf{说明} \\
+\hline
+\endhead
+id & INTEGER & PK & 自增主键 \\ \hline
+serial\_number & VARCHAR(50) & UNIQUE & 设备序列号 \\ \hline
+name & VARCHAR(100) & NOT NULL & 设备自定义名称 \\ \hline
+model\_type & VARCHAR(50) & & 机型（如 Quadcopter, VTOL） \\ \hline
+firmware\_ver & VARCHAR(20) & & 固件版本 \\ \hline
+registered\_at & TIMESTAMP & & 注册时间 \\ \hline
+last\_online & TIMESTAMP & & 最后在线时间 \\ \hline
+is\_active & BOOLEAN & DEFAULT T & 激活状态 \\ \hline
+\end{longtable}
+
+\subsubsection{missions (飞行任务表)}
+存储任务的规划数据与执行状态。
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{类型} & \textbf{约束} & \textbf{说明} \\
+\hline
+\endhead
+id & INTEGER & PK & 任务ID \\ \hline
+drone\_id & INTEGER & FK & 关联无人机 \\ \hline
+creator\_id & INTEGER & FK & 创建用户 \\ \hline
+name & VARCHAR(100) & & 任务名称 \\ \hline
+waypoints & JSONB & NOT NULL & 航点数据（GeoJSON格式） \\ \hline
+parameters & JSONB & & 任务参数（速度、高度、动作） \\ \hline
+status & VARCHAR(20) & & PENDING, EXECUTING, DONE, FAILED \\ \hline
+start\_time & TIMESTAMP & & 实际开始时间 \\ \hline
+end\_time & TIMESTAMP & & 实际结束时间 \\ \hline
+\end{longtable}
+
+\subsubsection{telemetry\_history (遥测历史表)}
+用于存储飞行轨迹回放，采用 TimescaleDB 超表技术优化时序写入。
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{类型} & \textbf{约束} & \textbf{说明} \\
+\hline
+\endhead
+time & TIMESTAMP & NOT NULL & 时间戳（分区键） \\ \hline
+drone\_id & INTEGER & FK & 无人机ID \\ \hline
+latitude & DOUBLE & & 纬度 \\ \hline
+longitude & DOUBLE & & 经度 \\ \hline
+altitude & FLOAT & & 相对高度 \\ \hline
+speed & FLOAT & & 地速 \\ \hline
+battery & INTEGER & & 电量百分比 \\ \hline
+flight\_mode & VARCHAR(20) & & 飞行模式 \\ \hline
+\end{longtable}
+
+\section{接口设计}
+
+\subsection{接口规范}
+接口遵循以下规范：采用 HTTP/1.1 (RESTful) 协议，数据格式为 JSON，字符编码统一使用 UTF-8，并采用 Bearer Token (JWT) 进行鉴权。
+
+\subsection{核心API定义}
+
+\subsubsection{上传任务}
+\textbf{URL}: \texttt{/api/v1/missions} \\
+\textbf{Method}: \texttt{POST} \\
+\textbf{Request Body}:
+\begin{lstlisting}
+{
+  "drone_id": 101,
+  "name": "PowerLine_Inspection_05",
+  "waypoints": [
+    {
+      "lat": 34.234567,
+      "lon": 108.987654,
+      "alt": 30.0,
+      "speed": 5.0,
+      "action": "HOVER",
+      "param": 5
+    },
+    ...
+  ],
+  "rtl_on_finish": true
+}
+\end{lstlisting}
+\textbf{Response (201 Created)}:
+\begin{lstlisting}
+{
+  "code": 20000,
+  "message": "Mission created successfully",
+  "data": {
+    "mission_id": 5023,
+    "estimated_duration": 1240,
+    "total_distance": 3500.5
+  }
+}
+\end{lstlisting}
+
+\subsubsection{获取无人机状态}
+\textbf{URL}: \texttt{/api/v1/drones/{id}/status} \\
+\textbf{Method}: \texttt{GET} \\
+\textbf{Response}:
+\begin{lstlisting}
+{
+  "code": 20000,
+  "data": {
+    "online": true,
+    "mode": "MISSION",
+    "armed": true,
+    "position": { "lat": 34.23, "lon": 108.98, "alt": 50.2 },
+    "battery": { "voltage": 22.4, "level": 78 },
+    "gps": { "satellites": 14, "hdop": 0.8 }
+  }
+}
+\end{lstlisting}
+
+\subsection{WebSocket 实时推送}
+\textbf{Endpoint}: \texttt{/ws/stream} \\
+\textbf{Events}:
+\begin{longtable}{|p{4cm}|p{10cm}|}
+\hline
+\textbf{Event Type} & \textbf{Payload Description} \\
+\hline
+\endhead
+TELEMETRY\_UPDATE & 包含无人机实时位置、姿态、速度的高频数据包。 \\ \hline
+MISSION\_PROGRESS & 当前航点索引、剩余距离、预计剩余时间。 \\ \hline
+ALERT & 系统告警（低电量、链路信号弱、GPS丢失）。 \\ \hline
+AI\_DETECTION & 视觉识别结果（目标类型、置信度、图像坐标）。 \\ \hline
+\end{longtable}
+
+\section{前端设计}
+
+\subsection{界面布局}
+前端采用现代化的 Dashboard 布局，分为顶部导航栏、左侧资源树、中间地图主视区、右侧信息面板与底部状态栏。
+核心组件包括：\textbf{地图组件}，基于 Mapbox GL JS 或 Leaflet，支持卫星图/矢量图切换及加载 GeoJSON 禁飞区图层；以及\textbf{视频组件}，使用 WebRTC 或 FLV.js 播放低延迟视频流，支持在视频层上绘制 AI 识别框（Canvas Overlay）。
+
+\subsection{状态管理}
+利用 Pinia 进行模块化状态管理：
+利用 Pinia 进行模块化状态管理，主要包括：\textbf{DroneStore}，维护所有无人机的即时状态字典，通过 WebSocket 消息驱动更新；\textbf{MissionStore}，管理当前编辑的任务数据，支持撤销/重做（Undo/Redo）；以及\textbf{UserStore}，管理用户信息与权限列表。
+
+\section{安全与可靠性设计}
+
+\subsection{安全机制}
+为确保系统安全，采取了多重防护措施：\textbf{通信加密}方面，所有 HTTP 流量强制使用 HTTPS (TLS 1.2+)，MAVLink 链路启用签名校验；\textbf{身份认证}采用 JWT (JSON Web Token) 进行无状态认证，Token 有效期 2 小时，并支持 Refresh Token 刷新；同时实施\textbf{操作审计}，所有关键指令（如解锁、起飞、修改参数）均记录审计日志，包含操作人 IP、时间与指令内容。
+
+\subsection{异常处理与容错}
+系统具备完善的异常处理机制：\textbf{断连保护}功能在 3 秒未收到心跳时，自动标记无人机为“失联”，并触发地面站声光报警；\textbf{地理围栏}机制在机载端与服务端进行双重校验，严防飞入禁飞区；此外，引入\textbf{服务熔断}策略，当后端服务负载过高时，优先保证遥测数据的接收，暂时拒绝非紧急的历史数据查询请求。
+
+\section{部署与维护}
+
+\subsection{部署架构}
+推荐采用 Docker Compose 或 Kubernetes 进行容器化部署。
+推荐采用 Docker Compose 或 Kubernetes 进行容器化部署，架构组件包括：\textbf{Nginx}，负责反向代理与负载均衡，处理 SSL 卸载；\textbf{App Server}，进行多副本部署的 FastAPI 服务；\textbf{Worker}，由 Celery Worker 处理视频转码与日志归档等耗时任务；以及\textbf{Database}，采用 PostgreSQL 主从复制与 Redis 集群模式。
+
+\subsection{监控运维}
+集成 Prometheus + Grafana 监控体系。
+集成 Prometheus + Grafana 监控体系，涵盖以下维度：\textbf{系统监控}（CPU、内存、磁盘 I/O、网络带宽）；\textbf{业务监控}（在线无人机数量、任务成功率、API 响应时间、WebSocket 连接数）；并利用\textbf{日志聚合}，使用 ELK (Elasticsearch, Logstash, Kibana) 栈收集与分析分布式日志。
+
+\section{系统测试 (System Testing)}
+
+\subsection{测试策略}
+系统测试分为单元测试、集成测试与验收测试三个阶段。
+系统测试分为三个阶段：\textbf{单元测试}，针对 MissionService 与 GeoMath 核心算法进行覆盖率测试，要求覆盖率 > 90\%；\textbf{集成测试}，模拟 MAVLink 数据流，验证 Telemetry Service 的高并发处理能力；以及\textbf{验收测试}，在仿真环境（SITL）中进行全流程飞行演练。
+
+\subsection{功能测试用例}
+\begin{longtable}{|p{1.5cm}|p{3.5cm}|p{4cm}|p{3cm}|p{1.5cm}|}
+\hline
+\textbf{ID} & \textbf{测试项目} & \textbf{前置条件} & \textbf{预期结果} & \textbf{结果} \\
+\hline
+\endhead
+TC-001 & 用户登录 & 数据库存在有效用户 & 返回 Token & 通过 \\ \hline
+TC-002 & 密码错误登录 & 数据库存在有效用户 & 返回 401 错误 & 通过 \\ \hline
+TC-003 & 上传空任务 & 无人机在线 & 返回 "Empty Mission" & 通过 \\ \hline
+TC-004 & 越界航点上传 & 设置禁飞区 & 返回 "No-Fly Zone" & 通过 \\ \hline
+TC-005 & 任务正常执行 & 无人机解锁 & 状态变更为 EXECUTING & 通过 \\ \hline
+TC-006 & 暂停任务 & 任务执行中 & 无人机悬停 (HOLD) & 通过 \\ \hline
+TC-007 & 恢复任务 & 任务暂停中 & 继续飞向下一航点 & 通过 \\ \hline
+TC-008 & 返航触发 & 任务执行中 & 爬升至 RTL 高度并返航 & 通过 \\ \hline
+TC-009 & 视频流加载 & 推流服务正常 & 延迟 < 200ms & 通过 \\ \hline
+TC-010 & AI 车辆识别 & 视频中出现车辆 & 绘制 Bounding Box & 通过 \\ \hline
+TC-011 & AI 行人识别 & 视频中出现行人 & 绘制 Bounding Box & 通过 \\ \hline
+TC-012 & 遥测数据中断 & 拔掉数传 & 3秒后触发断连告警 & 通过 \\ \hline
+TC-013 & 低电量返航 & 电量 < 20\% & 自动触发 RTL & 通过 \\ \hline
+TC-014 & 多机并发控制 & 5架无人机在线 & 所有指令无阻塞下发 & 通过 \\ \hline
+TC-015 & 历史轨迹查询 & 存在历史飞行记录 & 返回 GeoJSON 路径 & 通过 \\ \hline
+TC-016 & 固件升级 & 上传 .px4 文件 & 升级成功并重启 & 通过 \\ \hline
+TC-017 & 参数修改 & 修改最大速度 & 读取参数确认生效 & 通过 \\ \hline
+TC-018 & 账户权限控制 & 普通用户登录 & 无法删除任务 & 通过 \\ \hline
+TC-019 & 数据库备份 & 数据库运行中 & 生成 .sql 备份文件 & 通过 \\ \hline
+TC-020 & 服务重启恢复 & 重启后端服务 & 无人机自动重连 & 通过 \\ \hline
+\end{longtable}
+
+\section{附录 A: 核心配置文件 (Configuration)}
+
+\subsection{config.yaml (后端配置)}
+\begin{lstlisting}
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  debug: false
+
+database:
+  url: "postgresql://user:pass@localhost:5432/drone_db"
+  pool_size: 20
+  max_overflow: 10
+
+redis:
+  url: "redis://localhost:6379/0"
+  telemetry_channel: "drone/telemetry"
+
+mavlink:
+  connection_string: "udp://:14550"
+  system_id: 255
+  component_id: 1
+  timeout: 5.0
+
+security:
+  jwt_secret: "super_secret_key_change_me"
+  algorithm: "HS256"
+  access_token_expire_minutes: 120
+\end{lstlisting}
+
+\subsection{nginx.conf (反向代理配置)}
+\begin{lstlisting}
+user  nginx;
+worker_processes  auto;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    upstream backend_api {
+        server app:8000;
+    }
+
+    server {
+        listen 80;
+        server_name drone-control.futurewing.com;
+
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+            try_files $uri $uri/ /index.html;
+        }
+
+        location /api/ {
+            proxy_pass http://backend_api;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location /ws/ {
+            proxy_pass http://backend_api;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+}
+\end{lstlisting}
+
+\section{附录 B: 数据字典 (Data Dictionary)}
+
+\subsection{表: users (用户信息表)}
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{数据类型} & \textbf{必填} & \textbf{说明} \\
+\hline
+\endhead
+user\_id & SERIAL & Y & 用户唯一标识 \\ \hline
+username & VARCHAR(50) & Y & 登录用户名，唯一索引 \\ \hline
+password\_hash & VARCHAR(255) & Y & PBKDF2 加密后的密码散列 \\ \hline
+email & VARCHAR(100) & N & 用户邮箱 \\ \hline
+phone & VARCHAR(20) & N & 联系电话 \\ \hline
+role & VARCHAR(20) & Y & 角色：ADMIN, PILOT, VIEWER \\ \hline
+created\_at & TIMESTAMP & Y & 账户创建时间 \\ \hline
+last\_login & TIMESTAMP & N & 最后登录时间 \\ \hline
+is\_active & BOOLEAN & Y & 账户是否启用 \\ \hline
+avatar\_url & VARCHAR(255) & N & 头像图片地址 \\ \hline
+department & VARCHAR(100) & N & 所属部门 \\ \hline
+\end{longtable}
+
+\subsection{表: flight\_plans (飞行计划表)}
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{数据类型} & \textbf{必填} & \textbf{说明} \\
+\hline
+\endhead
+plan\_id & SERIAL & Y & 计划唯一标识 \\ \hline
+name & VARCHAR(100) & Y & 计划名称 \\ \hline
+description & TEXT & N & 任务描述 \\ \hline
+area\_polygon & GEOMETRY & Y & 任务区域多边形 (PostGIS) \\ \hline
+min\_altitude & FLOAT & Y & 最低飞行高度 (米) \\ \hline
+max\_altitude & FLOAT & Y & 最高飞行高度 (米) \\ \hline
+start\_time & TIMESTAMP & Y & 计划开始时间 \\ \hline
+end\_time & TIMESTAMP & Y & 计划结束时间 \\ \hline
+approval\_status & VARCHAR(20) & Y & 审批状态：DRAFT, APPROVED, REJECTED \\ \hline
+approver\_id & INTEGER & N & 审批人 ID \\ \hline
+\end{longtable}
+
+\subsection{表: maintenance\_logs (维护记录表)}
+\begin{longtable}{|p{3cm}|p{3cm}|p{2cm}|p{6cm}|}
+\hline
+\textbf{字段名} & \textbf{数据类型} & \textbf{必填} & \textbf{说明} \\
+\hline
+\endhead
+log\_id & SERIAL & Y & 记录 ID \\ \hline
+drone\_id & INTEGER & Y & 关联无人机 ID \\ \hline
+maintainer\_id & INTEGER & Y & 维护人员 ID \\ \hline
+log\_date & DATE & Y & 维护日期 \\ \hline
+type & VARCHAR(50) & Y & 维护类型：ROUTINE, REPAIR, REPLACE \\ \hline
+description & TEXT & Y & 维护内容详细描述 \\ \hline
+parts\_replaced & JSONB & N & 更换零件列表 \\ \hline
+cost & DECIMAL(10,2) & N & 维护费用 \\ \hline
+next\_due\_date & DATE & N & 下次建议维护日期 \\ \hline
+\end{longtable}
+
+\section{附录 C: 部署指南 (Deployment Guide)}
+
+\subsection{环境准备}
+本系统推荐运行在 Ubuntu 22.04 LTS 操作系统上。
+\begin{lstlisting}[language=bash]
+# 更新系统包
+sudo apt update && sudo apt upgrade -y
+
+# 安装基础依赖
+sudo apt install -y curl git build-essential
+
+# 安装 Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# 安装 Docker Compose
+sudo apt install -y docker-compose-plugin
+\end{lstlisting}
+
+\subsection{数据库初始化}
+\begin{lstlisting}[language=sql]
+-- 创建数据库用户
+CREATE USER drone_user WITH PASSWORD 'secure_password';
+
+-- 创建数据库
+CREATE DATABASE drone_db OWNER drone_user;
+
+-- 启用 PostGIS 扩展
+\c drone_db
+CREATE EXTENSION postgis;
+CREATE EXTENSION timescaledb;
+\end{lstlisting}
+
+\subsection{应用部署}
+\begin{lstlisting}[language=bash]
+# 克隆代码仓库
+git clone https://github.com/futurewing/drone-control-core.git
+cd drone-control-core
+
+# 构建镜像
+docker compose build
+
+# 启动服务
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+\end{lstlisting}
+
+\subsection{常见问题排查}
+常见问题及排查方法如下：若出现\textbf{MAVLink 连接超时}，请检查防火墙是否放行 UDP 14550 端口，并确认无人机 IP 地址配置正确；若\textbf{视频流无法播放}，请确认 RTSP 地址在 VLC 中可播放，并检查 Nginx 是否开启了 WebSocket 支持。
+
+\section{附录 D: 错误码字典}
+\begin{longtable}{|p{2cm}|p{4cm}|p{6cm}|}
+\hline
+\textbf{错误码} & \textbf{错误信息} & \textbf{解决方案} \\
+\hline
+\endhead
+10001 & System Error & 联系管理员查看后台日志 \\ \hline
+20001 & Auth Failed & 检查 Token 是否过期 \\ \hline
+20002 & Permission Denied & 当前用户无权执行此操作 \\ \hline
+30001 & Drone Offline & 检查无人机电源与数传链路 \\ \hline
+30002 & Mission Invalid & 检查航点是否在禁飞区内 \\ \hline
+30003 & Upload Timeout & 重试上传或检查网络状况 \\ \hline
+\end{longtable}
+
+\section{附录 E: 用户操作手册 (User Operation Manual)}
+
+\subsection{系统登录}
+系统登录步骤如下：首先，打开浏览器，访问系统地址 \texttt{http://drone-control.futurewing.com}；接着，在登录页面输入用户名与密码（默认管理员账号：admin / admin123）；然后，点击“登录”按钮，系统将校验凭证并跳转至仪表盘首页；若忘记密码，请联系系统管理员重置。
+
+\subsection{仪表盘概览}
+登录成功后，用户将看到主仪表盘，包含以下区域：
+登录成功后，用户将看到主仪表盘，包含以下区域：\textbf{顶部状态栏}，显示当前在线无人机数量、告警信息及当前用户头像；\textbf{左侧导航栏}，提供“实时监控”、“任务规划”、“历史回放”、“系统设置”等功能入口；\textbf{中央地图区}，实时显示所有在线无人机的位置、航向及飞行轨迹；以及\textbf{右侧详情板}，选中某架无人机后，显示其详细遥测数据（电压、卫星数、高度、速度）。
+
+\subsection{任务规划流程}
+\subsubsection{创建新任务}
+创建新任务的步骤为：首先，点击左侧导航栏的“任务规划”图标；其次，在地图上点击鼠标左键添加航点（Waypoint）；接着，在右侧属性面板中设置每个航点的高度（默认 30米）、悬停时间及动作（如拍照、投掷）；最后，点击“保存任务”，输入任务名称（如“A区巡检_20251126”）。
+
+\subsubsection{任务上传与执行}
+任务上传与执行的操作流程是：在任务列表中选择已保存的任务，点击“上传”按钮，系统将自动校验航点合法性（是否穿越禁飞区）；校验通过后，点击“执行”按钮；确认弹出的安全提示框，无人机将自动解锁并起飞。
+
+\subsection{实时监控与干预}
+在任务执行过程中，操作员可随时进行人工干预：
+在任务执行过程中，操作员可随时进行人工干预：点击“暂停”按钮，无人机将立即悬停在当前位置；点击“继续”按钮，无人机将飞向下一航点；点击“RTL”按钮，无人机将升高至安全返航高度（默认 50米）并直线返回起飞点；遇到严重故障时，点击“紧急降落”，无人机将原地强制降落（慎用）。
+
+\subsection{视频流与AI识别}
+视频流与AI识别功能的使用方法如下：在右下角视频窗口中，可查看当前选中无人机的实时第一人称视角（FPV）；开启“AI 识别”开关，系统将自动在视频画面上框选识别到的车辆（蓝色框）与行人（红色框）；点击识别框，可查看目标的估算经纬度坐标。
+
+\section{附录 F: 安全与合规 (Security \& Compliance)}
+
+\subsection{数据隐私保护}
+本系统严格遵循《个人信息保护法》及 GDPR 相关规定：
+本系统严格遵循《个人信息保护法》及 GDPR 相关规定：实行\textbf{数据脱敏}，在日志导出时，自动对用户手机号、邮箱进行掩码处理；启用\textbf{存储加密}，数据库磁盘采用 AES-256 透明加密；并强制\textbf{传输加密}，全链路使用 HTTPS，禁止明文 HTTP 访问。
+
+\subsection{访问控制策略}
+系统实施基于角色的访问控制 (RBAC)：
+\begin{longtable}{|p{3cm}|p{8cm}|}
+\hline
+\textbf{角色} & \textbf{权限描述} \\
+\hline
+\endhead
+超级管理员 & 拥有所有权限，包括用户管理、系统配置修改。 \\ \hline
+飞行员 & 仅可创建任务、执行飞行、查看遥测数据。 \\ \hline
+观察员 & 仅可查看实时监控画面与历史记录，不可控制无人机。 \\ \hline
+\end{longtable}
+
+\section{附录 G: 未来规划 (Roadmap)}
+
+\subsection{V1.5 版本规划 (2026 Q1)}
+V1.5 版本规划 (2026 Q1) 包括：\textbf{支持 5G 切片网络}，进一步降低端到端延迟至 20ms 以内；\textbf{集成红外热成像}，支持双光吊舱，应用于夜间搜救与电力测温；以及\textbf{三维路径规划}，基于 3D 城市模型的避障算法。
+
+\subsection{V2.0 版本规划 (2026 Q3)}
+V2.0 版本规划 (2026 Q3) 将实现：\textbf{全自主集群编队}，支持 50 架以上无人机的动态编队飞行与灯光秀控制；\textbf{数字孪生}，在 Web 端构建 1:1 的高保真三维仿真环境；以及\textbf{区块链存证}，将关键飞行日志上链，确保数据不可篡改，用于事故定责。
+
+\section{附录 H: 硬件规格书 (Hardware Specifications)}
+
+\subsection{机载计算机 (Companion Computer)}
+\begin{longtable}{|p{4cm}|p{8cm}|}
+\hline
+\textbf{参数项} & \textbf{规格指标} \\
+\hline
+\endhead
+处理器 & NVIDIA Jetson Orin Nano (6-core ARM Cortex-A78AE) \\ \hline
+GPU & 1024-core NVIDIA Ampere architecture GPU with 32 Tensor Cores \\ \hline
+内存 & 8GB 128-bit LPDDR5 \\ \hline
+存储 & 512GB NVMe SSD \\ \hline
+接口 & 2x USB 3.2 Gen 2, 1x Gigabit Ethernet, 1x HDMI 2.1 \\ \hline
+功耗 & 7W - 15W \\ \hline
+操作系统 & Ubuntu 20.04 LTS (JetPack 5.1) \\ \hline
+\end{longtable}
+
+\subsection{飞控模块 (Flight Controller)}
+\begin{longtable}{|p{4cm}|p{8cm}|}
+\hline
+\textbf{参数项} & \textbf{规格指标} \\
+\hline
+\endhead
+主控芯片 & STM32H753 (480MHz) \\ \hline
+协处理器 & STM32F103 (IO Processor) \\ \hline
+IMU & 3x ICM-42688-P (Vibration Isolated) \\ \hline
+气压计 & 2x BMP388 \\ \hline
+磁罗盘 & RM3100 \\ \hline
+PWM输出 & 16 channels \\ \hline
+通信接口 & 5x UART, 3x I2C, 2x CAN FD \\ \hline
+\end{longtable}
+
+\section{附录 I: 开源许可声明 (Open Source Licenses)}
+
+本软件使用了以下开源组件，特此声明：
+
+\subsection{后端组件}
+\begin{longtable}{|p{4cm}|p{3cm}|p{5cm}|}
+\hline
+\textbf{组件名称} & \textbf{版本} & \textbf{许可证} \\
+\hline
+\endhead
+FastAPI & 0.95.0 & MIT License \\ \hline
+Uvicorn & 0.21.1 & BSD-3-Clause \\ \hline
+SQLAlchemy & 2.0.7 & MIT License \\ \hline
+Pydantic & 1.10.7 & MIT License \\ \hline
+Celery & 5.2.7 & BSD-3-Clause \\ \hline
+Redis-py & 4.5.4 & MIT License \\ \hline
+PyJWT & 2.6.0 & MIT License \\ \hline
+MAVSDK-Python & 1.4.1 & BSD-3-Clause \\ \hline
+NumPy & 1.24.2 & BSD-3-Clause \\ \hline
+OpenCV-Python & 4.7.0 & MIT License \\ \hline
+Ultralytics YOLO & 8.0.50 & AGPL-3.0 \\ \hline
+\end{longtable}
+
+\subsection{前端组件}
+\begin{longtable}{|p{4cm}|p{3cm}|p{5cm}|}
+\hline
+\textbf{组件名称} & \textbf{版本} & \textbf{许可证} \\
+\hline
+\endhead
+Vue.js & 3.2.47 & MIT License \\ \hline
+Vite & 4.2.1 & MIT License \\ \hline
+Pinia & 2.0.33 & MIT License \\ \hline
+Vue Router & 4.1.6 & MIT License \\ \hline
+Axios & 1.3.4 & MIT License \\ \hline
+Element Plus & 2.3.1 & MIT License \\ \hline
+ECharts & 5.4.1 & Apache-2.0 \\ \hline
+Mapbox GL JS & 2.13.0 & BSD-3-Clause \\ \hline
+Socket.io-client & 4.6.1 & MIT License \\ \hline
+Lodash & 4.17.21 & MIT License \\ \hline
+\end{longtable}
+
+\section{附录 J: 数据库建表脚本 (Database Schema SQL)}
+
+\begin{lstlisting}[language=sql]
+-- Enable PostGIS
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Users Table
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(100),
+    phone VARCHAR(20),
+    role VARCHAR(20) DEFAULT 'VIEWER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    avatar_url VARCHAR(255),
+    department VARCHAR(100)
+);
+
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_email ON users(email);
+
+-- Drones Table
+CREATE TABLE drones (
+    id SERIAL PRIMARY KEY,
+    serial_number VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    model_type VARCHAR(50),
+    firmware_ver VARCHAR(20),
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_online TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_drones_serial ON drones(serial_number);
+
+-- Missions Table
+CREATE TABLE missions (
+    id SERIAL PRIMARY KEY,
+    drone_id INTEGER REFERENCES drones(id),
+    creator_id INTEGER REFERENCES users(user_id),
+    name VARCHAR(100),
+    waypoints JSONB NOT NULL,
+    parameters JSONB,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_missions_drone ON missions(drone_id);
+CREATE INDEX idx_missions_status ON missions(status);
+CREATE INDEX idx_missions_created ON missions(created_at);
+
+-- Flight Logs (Hypertable)
+CREATE TABLE flight_logs (
+    time TIMESTAMP NOT NULL,
+    drone_id INTEGER REFERENCES drones(id),
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    altitude REAL,
+    speed REAL,
+    battery INTEGER,
+    flight_mode VARCHAR(20),
+    cpu_usage INTEGER,
+    ram_usage INTEGER
+);
+
+SELECT create_hypertable('flight_logs', 'time');
+
+CREATE INDEX idx_flight_logs_drone_time ON flight_logs(drone_id, time DESC);
+
+-- Maintenance Logs
+CREATE TABLE maintenance_logs (
+    log_id SERIAL PRIMARY KEY,
+    drone_id INTEGER REFERENCES drones(id),
+    maintainer_id INTEGER REFERENCES users(user_id),
+    log_date DATE NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    description TEXT,
+    parts_replaced JSONB,
+    cost DECIMAL(10,2),
+    next_due_date DATE
+);
+
+CREATE INDEX idx_maint_drone ON maintenance_logs(drone_id);
+
+-- No Fly Zones
+CREATE TABLE no_fly_zones (
+    zone_id SERIAL PRIMARY KEY,
+    name VARCHAR(100),
+    polygon GEOMETRY(POLYGON, 4326),
+    min_altitude REAL,
+    max_altitude REAL,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_nfz_geom ON no_fly_zones USING GIST(polygon);
+\end{lstlisting}
+
+\end{document}
